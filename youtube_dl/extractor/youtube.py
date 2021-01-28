@@ -3428,13 +3428,57 @@ class YoutubeSearchIE(SearchInfoExtractor, YoutubeBaseInfoExtractor):
                     if not isinstance(content, dict):
                         continue
                     video = content.get('videoRenderer')
-                    if not isinstance(video, dict):
+                    video_playlist = content.get('playlistRenderer')
+                    if not isinstance(video, dict) and not isinstance(video_playlist, dict):
                         continue
-                    video_id = video.get('videoId')
-                    if not video_id:
+                    
+                    if video:
+                        video_id = video.get('videoId')
+                    else:
+                        video_id = None
+                    if video_playlist:
+                        video_playlist_id = video_playlist.get('playlistId')
+                    else:
+                        video_playlist_id = None	
+                    if not video_id and not video_playlist_id:
                         continue
-                    yield self._extract_video(video)
+                    
+                    
+                    if video_id:
+                        video_url = video_id
+                        title = try_get(video,(lambda x: x['title']['runs'][0]['text'],lambda x: x['title']['simpleText']), compat_str)
+                        description = try_get(video, lambda x: x['descriptionSnippet']['runs'][0]['text'], compat_str)
+                        duration = parse_duration(try_get(video, lambda x: x['lengthText']['simpleText'], compat_str))
+                        view_count_text = try_get(video, lambda x: x['viewCountText']['simpleText'], compat_str) or ''
+                        view_count = str_to_int(self._search_regex(
+                            r'^([\d,]+)', re.sub(r'\s', '', view_count_text),
+                            'view count', default=None))
+                        uploader = try_get(video, lambda x: x['ownerText']['runs'][0]['text'], compat_str)
+                    elif video_playlist_id:
+                        # Youtube playlist id found, duration will get the playlist video count
+                        title = try_get(video_playlist,(lambda x: x['title']['runs'][0]['text'],lambda x: x['title']['simpleText']), compat_str)
+                        duration = video_playlist.get('videoCount')
+                        video_id_original = try_get(video_playlist, lambda x: x['navigationEndpoint']['watchEndpoint']['videoId'], compat_str) or 'NA'
+                        video_url = 'https://www.youtube.com/watch?v=' + video_id_original + '&list=' + video_playlist_id
+                        video_id = video_playlist_id
+                        description = None
+                        view_count_text = ''
+                        view_count = None
+                        uploader = try_get(video_playlist, lambda x: x['shortBylineText']['runs'][0]['text'], compat_str)
+                    
                     total += 1
+                    yield {
+                        '_type': 'url_transparent',
+                        'ie_key': YoutubeIE.ie_key(),
+                        'id': video_id,
+                        'url': video_url,
+                        'title': title,
+                        'description': description,
+                        'duration': duration,
+                        'view_count': view_count,
+                        'uploader': uploader,
+                    }
+                    
                     if total == n:
                         return
             token = try_get(
